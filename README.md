@@ -1,4 +1,4 @@
-# GroupD_Companies
+# Group_D_Companies
 Title: Companies <br>
 Description: A Data-Driven Analysis of the Top 10,000 Companies <br>
 Group Member and contact emails: <br>
