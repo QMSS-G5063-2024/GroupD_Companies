@@ -1,0 +1,564 @@
+---
+title: "Analysis On Top 10000 Companies"
+author: "Group D"
+date: "2024-04-17"
+output: html_document
+---
+
+
+## Abstract:
+
+
+#### In this project, we used two datasets from Kaggle, top 10000 comapnies and top 50 US tech companies, to conduct different analysis in order to answer questions like how companies are rated, what concerns do employees have, and how does company genre affect earnings etc. We generated various visualizations and invite you go on a journey with us here. Here you can find the links to the datasets.
+
+
+##### https://www.kaggle.com/datasets/vedantkhapekar/top-10000-companies-dataset,
+##### https://www.kaggle.com/code/alexsaxe/top-50-us-tech-companies-2022-2023,
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(wordcloud)
+library(tidytext)
+library(readr)
+library(tidyverse)
+library(plotly)
+library(DT)
+library(igraph)
+library(shiny)
+library(tm)
+library(slam)
+library(reshape2)
+library(RColorBrewer)
+library(leaflet)
+```
+
+
+
+```{r ,echo=FALSE}
+# Load the data
+companies <- read.csv("companies.csv")
+```
+
+
+
+```{r , warning=FALSE, echo=FALSE}
+# Splitting the description column
+companies_edited <- companies %>%
+  mutate(Description = gsub("\\+\\d+ more", "", Description)) %>%
+  separate(Description, into = c("Genre", "Company_Size", "Company_Type", "Years_Old", "HQ_Location"), sep = " \\| ")
+```
+
+```{r , warning=FALSE,echo=FALSE}
+companies_edited <- companies_edited %>%
+  mutate(
+    Years_Old = as.numeric(gsub("years old", "", Years_Old)),
+    Company_Size = gsub("Employees", "", Company_Size)  # Assuming '1 Lakh+' would be formatted as such
+  )
+```
+
+
+
+```{r , message=FALSE, echo=FALSE, warning=FALSE}
+# Convert non-numeric items to numbers
+convert_k_to_number <- function(x) {
+  sapply(x, function(y) {
+    if (grepl("k", y)) {
+      as.numeric(gsub("k", "", y)) * 1000
+    } else {
+      as.numeric(y)
+    }
+  })
+}
+
+companies_edited <- companies_edited %>%
+  mutate(
+    Total_reviews = convert_k_to_number(Total_reviews),
+    Avg_salary = convert_k_to_number(Avg_salary),
+    Interviews_taken = convert_k_to_number(Interviews_taken),
+    Total_jobs_available = convert_k_to_number(Total_jobs_available),
+    Total_benefits = convert_k_to_number(Total_benefits)
+  )
+```
+
+
+## Topic 1: numerical variables correlations
+
+
+###
+### Graph 1: Headmap - Variables examined
+
+```{r ,message=FALSE,echo=FALSE,warning=FALSE }
+numerical_data <- companies_edited %>% 
+  select(Total_reviews, Avg_salary, Interviews_taken, Total_jobs_available, Total_benefits) %>%
+  cor(use = "complete.obs")  # Correlation on complete cases
+
+# Melt the correlation matrix for ggplot2
+melted_cor_matrix <- melt(numerical_data)
+
+# Get heat colors with a specified number of levels, say 100
+heat_colors <- grDevices::heat.colors(100)
+
+# Plot the heatmap using the "heat.colors"
+ggplot(melted_cor_matrix, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = heat_colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+        axis.text.y = element_text(size = 12)) +
+  labs(x = '', y = '', title = 'Heatmap of Variable Correlations', subtitle = 'Correlation coefficients') +
+  geom_text(aes(label = sprintf("%.2f", value)), size = 4, color = "black")
+```
+
+
+
+
+## Topic 2: relationship between company genres and total benefits
+
+```{r ,message=FALSE,echo=FALSE,warning=FALSE, include=FALSE}
+genre_to_category <- list(
+  "Technology & Services" = c("IT Services & Consulting", "Telecom", "Internet", "Software Product", "Analytics & KPO", "Hardware & Networking", "Emerging Technologies", "Gaming", "Animation & VFX", "Startup"),
+  "Financial Services" = c("Banking", "NBFC", "Financial Services", "FinTech", "Investment Banking / Venture Capital / Private Equity", "Accounting & Auditing"),
+  "Health & Pharmaceuticals" = c("Pharma", "Healthcare", "Clinical Research", "Biotechnology", "Medical Equipment"),
+  "Engineering & Manufacturing" = c("Engineering & Construction", "Automobile", "Chemicals", "Iron & Steel", "Logistics", "Industrial Machinery", "Auto Components", "Electrical Equipment", "Electronics Manufacturing", "Agro Chemicals", "Industrial Automation", "Metals & Mining", "Semiconductors"),
+  "Energy & Utilities" = c("Oil & Gas", "Power", "Renewable Energy", "Petrochemicals"),
+  "Consumer Goods & Retail" = c("Retail", "Consumer Electronics & Appliances", "FMCG", "Fashion & Textile", "Food Processing", "Beauty & Personal Care", "Furniture & Furnishing", "Leather"),
+  "Education & Training" = c("EdTech", "Education & Training"),
+  "Media, Marketing & Advertising" = c("Marketing & Advertising", "Media & Entertainment", "Printing & Publishing", "Content Development"),
+  "Infrastructure & Real Estate" = c("Building Material", "Real Estate", "Facility Management Services"),
+  "Diverse Sectors" = c("Hospitality", "Travel & Tourism", "Law Enforcement & Security", "Non-Profit", "Government")
+)
+
+# Function to categorize genres into one of the 10 broad categories
+categorize_genre <- function(genre) {
+  for (category in names(genre_to_category)) {
+    if (genre %in% genre_to_category[[category]]) {
+      return(category)
+    }
+  }
+  return("Other")
+}
+
+# Apply the function to the dataset
+companies_edited$broader_genres <- sapply(companies_edited$Genre, categorize_genre)
+
+# Check the new broad categories
+table(companies_edited$broader_genres)
+```
+## Graph 1: Relationship Between Broad Genre and Total Benefits
+
+```{r jitter plot,message=FALSE,echo=FALSE,warning=FALSE }
+ggplot(companies_edited, aes(x = broader_genres, y = Total_benefits, color = broader_genres)) +
+  geom_jitter(alpha = 0.5, width = 0.25) +
+  theme_minimal() +
+  labs(title = "Relationship Between Broad Genre and Total Benefits", x = "Broad Genre", y = "Total Benefits") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Graph 2: Average Total Benefits by Broad Genre
+
+```{r bar chart, message=FALSE,echo=FALSE,warning=FALSE }
+companies_edited %>%
+  group_by(broader_genres) %>%
+  summarize(Avg_Total_Benefits = mean(Total_benefits, na.rm = TRUE)) %>%
+  ggplot(aes(x = broader_genres, y = Avg_Total_Benefits, fill = broader_genres)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Average Total Benefits by Broad Genre", x = "Broad Genre", y = "Average Total Benefits") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+# Topic 3: Companies by HQ locations
+
+```{r HQ locations ,message=FALSE,echo=FALSE,warning=FALSE,include=FALSE }
+location_counts <- companies_edited %>%
+  group_by(HQ_Location) %>%
+  summarize(Count = n(), .groups = 'drop')
+
+top_locations <- location_counts %>%
+  arrange(desc(Count)) %>%
+  slice(1:30)  # Selects the top 30 locations by company count
+
+# Display the top locations to verify
+print(top_locations)
+```
+
+```{r df based on locations and counts, message=FALSE, echo=FALSE, warning=FALSE,include=FALSE}
+# Create a data frame based on the provided locations and counts
+top_locations <- data.frame(
+  HQ_Location = c("Mumbai", "Delhi/NCR", "Bangalore", "Chennai", "Noida", "Kolkata", "Pune",
+                  "Gurgaon/Gurugram", "Gurgaon", "Bangalore/Bengaluru", "Hyderabad/Secunderabad",
+                  "New Delhi", "Ahmedabad", "Hyderabad", "Delhi", "London", "Vadodara/Baroda",
+                  "Chandigarh", "Coimbatore", "New York", "Paris", "San Francisco", "Jaipur",
+                  "Bengaluru/Bangalore", "Nagpur", "Thane", "New York City", "Atlanta", "Bhubaneswar"),
+  Count = c(525, 155, 143, 110, 103, 97, 91, 88, 83, 82, 72, 72, 50, 38, 35, 33, 21, 20, 18, 18,
+            17, 16, 15, 13, 13, 13, 12, 11, 11)
+)
+
+# Standardize location names and sum counts if needed
+library(dplyr)
+top_locations <- top_locations %>%
+  mutate(HQ_Location = case_when(
+    grepl("Gurgaon", HQ_Location) ~ "Gurgaon",
+    grepl("Bangalore", HQ_Location) | grepl("Bengaluru", HQ_Location) ~ "Bangalore",
+    grepl("Hyderabad", HQ_Location) ~ "Hyderabad",
+    grepl("New York", HQ_Location) ~ "New York",
+    grepl("Delhi", HQ_Location) ~ "Delhi",
+    TRUE ~ as.character(HQ_Location)
+  )) %>%
+  group_by(HQ_Location) %>%
+  summarize(Count = sum(Count), .groups = 'drop')
+
+# Check the updated top locations
+print(top_locations)
+```
+
+
+
+
+```{r leaflet map, message=FALSE, echo=FALSE, warning=FALSE }
+top_locations <- data.frame(
+  HQ_Location = c("Ahmedabad", "Atlanta", "Bangalore", "Bhubaneswar", "Chandigarh", "Chennai",
+                  "Coimbatore", "Delhi", "Gurgaon", "Hyderabad", "Jaipur", "Kolkata", "London",
+                  "Mumbai", "Nagpur", "New York", "Noida", "Paris", "Pune", "San Francisco",
+                  "Thane", "Vadodara"),
+  Count = c(50, 11, 238, 11, 20, 110, 18, 262, 171, 110, 15, 97, 33, 525, 13, 30, 103, 17, 91, 16,
+            13, 21),
+  Latitude = c(23.0225, 33.7490, 12.9716, 20.2961, 30.7333, 13.0827, 11.0168, 28.7041, 28.4595,
+               17.3850, 26.9124, 22.5726, 51.5074, 19.0760, 21.1458, 40.7128, 28.5355, 48.8566,
+               18.5204, 37.7749, 19.2183, 22.3072),
+  Longitude = c(72.5714, -84.3880, 77.5946, 85.8245, 76.7794, 80.2707, 76.9558, 77.1025, 77.0266,
+                78.4867, 75.7873, 88.3639, -0.1278, 72.8777, 79.0882, -74.0060, 77.3910, 2.3522,
+                73.8567, -122.4194, 72.9781, 73.1812)
+)
+
+leaflet_map <- leaflet(top_locations) %>%
+  addProviderTiles(providers$OpenStreetMap) %>%  # Using OpenStreetMap tiles
+  addCircleMarkers(
+    lng = ~Longitude, lat = ~Latitude,
+    radius = ~sqrt(Count) * 5,  # Radius proportional to the sqrt of the company count
+    popup = ~paste(HQ_Location, "Companies:", Count),
+    color = 'pink', fill = TRUE, fillOpacity = 0.7
+  )
+
+leaflet_map
+```
+
+
+
+
+```{r company network visualization, message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.height=8, out.width="100%"}
+# Create a data frame with the company and its elements
+company_data <- data.frame(
+  from = c("Company", "Company", "Company", "Company", "Company", "Company", "Company", "Benefits", "Industry", "Leadership", "Innovation", "Sustainability"),
+  to = c("Benefits", "Industry", "Leadership", "Innovation", "Culture", "Sustainability", "Financial Performance", "Employee Satisfaction", "Market Trends", "Vision", "Competitive Advantage", "Reputation")
+)
+
+# Create the graph object
+company_graph <- graph_from_data_frame(company_data, directed = TRUE)
+
+# Set vertex attributes for coloring and sizing
+V(company_graph)$color <- ifelse(V(company_graph)$name == "Company", "orange", "lightblue")
+V(company_graph)$size <- ifelse(V(company_graph)$name == "Company", 30, 20)
+
+# Set edge arrow size
+E(company_graph)$arrow.size <- 0.5
+
+# Plot the graph
+plot(company_graph,
+     layout = layout_with_kk,
+     vertex.label.color = "black",
+     vertex.label.cex = 0.8,
+     edge.arrow.size = 1,
+     edge.length = 400,
+     main = "Company Analysis Network Visualization")
+```
+
+
+### Here is a network visualization that shows how different elements of companies are assocaited with each other during analysis.
+
+
+
+
+
+<div style="background-image: url('cartoon-background.jpg'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 24px; font-weight: bold; color: #fff; text-shadow: 2px 2px 4px #000; font-family: 'Comic Sans MS', cursive;">Hi, Guys! Please feel free to explore this specific dataset:</p>
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Top 50 US Technology Companies</p>
+  <p style="font-size: 20px; color: #fff; text-shadow: 2px 2px 4px #000; font-family: 'Comic Sans MS', cursive;">Choose any company that interests you!</p>
+</div>
+
+```{r top-50, message=FALSE, echo=FALSE, warning=FALSE }
+# Load the CSV file with a semicolon delimiter
+top_50 <- read.csv("top_50.csv")
+
+# Interactive data table
+datatable(top_50, filter = "top", options = list(pageLength = 10))
+```
+
+
+
+<div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 20px;">
+  <div style="background-image: url('wolf.webp'); background-size: contain; background-repeat: no-repeat; background-position: center; border: 2px solid #000; border-radius: 10px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); width: 100%; height: 400px;"></div>
+  <p style="font-size: 32px; font-weight: bold; color: #000; font-family: 'Impact', sans-serif; text-transform: uppercase; margin-top: 20px;">Now, let the numbers do the talking!!!</p>
+</div>
+
+
+
+```{r graphs, message=FALSE,echo=FALSE,warning=FALSE}
+# Interactive bar chart of companies by sector
+sector_count <- top_50 %>%
+  count(Sector, sort = TRUE)
+
+plot_sector <- ggplot(sector_count, aes(x = reorder(Sector, n), y = n, fill = Sector)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Sector", y = "Number of Companies", title = "Top 50 Tech Companies by Sector")
+
+ggplotly(plot_sector)
+
+# Interactive scatter plot of market cap vs annual revenue
+plot_revenue_cap <- ggplot(top_50, aes(x = `Annual.Revenue.2022.2023..USD.in.Billions.`, y = `Market.Cap..USD.in.Trillions.`, color = Sector, text = paste("Company:", Company.Name))) +
+  geom_point(size = 3) +
+  scale_color_discrete(name = "Sector") +
+  labs(x = "Annual Revenue (USD in Billions)", y = "Market Cap (USD in Trillions)", title = "Market Cap vs Annual Revenue")
+
+ggplotly(plot_revenue_cap, tooltip = "text")
+```
+
+### This part we want to visualize the tital job available by industry and companies worldwide. 
+
+
+
+
+## Top 10 industries and their total job available worldwide
+
+```{r top 10 industries and total job worldwide, message=FALSE,echo=FALSE,warning=FALSE}
+# Clean and convert data
+companies$Industry <- sapply(companies$Description, function(x) unlist(strsplit(x, "\\|"))[1])
+companies$Total_jobs_available <- gsub("k", "000", companies$Total_jobs_available)
+companies$Total_jobs_available <- gsub("[^0-9]", "", companies$Total_jobs_available)
+companies$Total_jobs_available <- as.numeric(companies$Total_jobs_available)
+
+# Calculate top three companies per industry based on total jobs
+top_companies_by_industry <- companies %>%
+  group_by(Industry, Company_name) %>%
+  summarize(Total_Jobs = sum(Total_jobs_available, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(desc(Total_Jobs)) %>%
+  group_by(Industry) %>%
+  mutate(Rank = rank(-Total_Jobs, ties.method = "first")) %>%
+  filter(Rank <= 3) %>%
+  summarise(Top_Companies = paste(Company_name, "(", Total_Jobs, " jobs)", collapse = ", "), .groups = 'drop')
+
+# Combine top industries with top companies info
+top_industries <- companies %>%
+  group_by(Industry) %>%
+  summarize(Total_Jobs = sum(Total_jobs_available, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(desc(Total_Jobs)) %>%
+  slice_max(order_by = Total_Jobs, n = 10) %>%
+  left_join(top_companies_by_industry, by = "Industry")
+
+# Create hover text with top company details
+top_industries$hover_text <- with(top_industries, paste("Industry:", Industry, "<br>Total Jobs Available:", Total_Jobs,
+                                                        "<br>Top Companies: ", Top_Companies))
+
+# Create a ggplot histogram with custom hover text
+p <- ggplot(top_industries, aes(x = reorder(Industry, -Total_Jobs), y = Total_Jobs, fill = Total_Jobs, text = hover_text)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient(low = "lightpink", high = "brown") +
+  labs(title = "Top 10 Industries by Total Jobs Available Worldwide", x = "Industry", y = "Total Jobs Available") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Convert ggplot object to an interactive plotly object with custom tooltips
+p_interactive <- ggplotly(p, tooltip = "text")
+
+# Render the interactive plot
+p_interactive
+```
+
+
+### I created an interactive histogram of the top 10 industries by total job available worldwide. We can see the total number of job available of each industry and the top 3 companies with highest numbers of available jobs in that industry. 
+
+
+
+## 2. Map: top 20 companies by total job available worldwide.
+
+``` {r , message=FALSE, echo=FALSE, warning=FALSE}
+companies$Industry <- sapply(companies$Description, function(x) {
+  parts <- unlist(strsplit(x, "\\|"))
+  if (length(parts) > 0) trimws(parts[1]) else NA
+})
+
+# Replace 'k' with '000' in Total_jobs_available and clean up non-numeric characters
+companies$Total_jobs_available <- gsub("k", "000", companies$Total_jobs_available)
+companies$Total_jobs_available <- gsub("[^0-9]", "", companies$Total_jobs_available)
+companies$Total_jobs_available <- as.numeric(companies$Total_jobs_available)  # Convert to numeric
+
+# Drop rows with NA in Total_jobs_available
+companies <- companies[!is.na(companies$Total_jobs_available), ]
+
+# Check remaining NA in critical columns and summarize data
+na_count <- sum(is.na(companies$Total_jobs_available))
+
+
+library(dplyr)
+
+# Aggregate total jobs by company, ensuring to handle NAs properly
+company_jobs_summary <- companies %>%
+  group_by(Company_name) %>%
+  summarize(Total_Jobs = sum(Total_jobs_available, na.rm = TRUE)) %>%
+  arrange(desc(Total_Jobs))
+
+# Select the top 20 companies based on total jobs available
+top_20_companies <- head(company_jobs_summary, 20)
+
+
+
+
+# Define the companies with their job totals and headquarters
+companies_data <- data.frame(
+  Company_name = c("Accenture", "Diverse Lynx", "Multiplier Brand Solutions", "Randstad",
+                   "Ernst & Young", "Skillventory", "Antal International", "PwC",
+                   "Zyoin", "CareerNet Consulting", "Infosys", "JP Morgan Chase",
+                   "Tech Mahindra", "IBM", "Live Connections", "ABC Consultants",
+                   "Indiamart Intermesh", "Tata Capital", "BYJU'S", "TCS"),
+  Total_Jobs = c(99000, 36000, 23000, 23000,
+                 18000, 17000, 15000, 12000,
+                 12000, 11000, 11000, 11000,
+                 11000, 4000, 1284, 1000,
+                 981, 959, 885, 847),
+  Headquarters = c("Dublin, Ireland", "Princeton, New Jersey, USA", "Bangalore, India", "Diemen, Netherlands",
+                   "London, United Kingdom", "Bangalore, India", "London, United Kingdom", "London, United Kingdom",
+                   "Bangalore, India", "Bangalore, India", "Bengaluru, India", "New York, USA",
+                   "Pune, India", "Armonk, New York, USA", "Chennai, India", "New Delhi, India",
+                   "Noida, India", "Mumbai, India", "Bengaluru, India", "Mumbai, India"),
+  Latitude = c(53.349805, 40.357298, 12.971599, 52.337956,
+               51.507351, 12.971599, 51.507351, 51.507351,
+               12.971599, 12.971599, 12.971599, 40.712776,
+               18.520430, 41.126484, 13.082680, 28.613939,
+               28.535516, 19.076090, 12.971599, 19.076090),
+  Longitude = c(-6.260310, -74.667223, 77.594566, 4.953561,
+                -0.127758, 77.594566, -0.127758, -0.127758,
+                77.594566, 77.594566, 77.594566, -74.006058,
+                73.856743, -73.708466, 80.270718, 77.209021,
+                77.391026, 72.877656, 77.594566, 72.877656),
+  Industry = c("Consulting", "HR & Recruitment", "Marketing & Advertising", "HR & Recruitment",
+               "Consulting", "HR & Recruitment", "HR & Recruitment", "Consulting",
+               "IT & Services", "HR & Recruitment", "IT & Services", "Finance",
+               "IT & Services", "IT & Services", "HR & Recruitment", "HR & Recruitment",
+               "Online Marketplace", "Finance", "Education", "IT & Services")
+)
+
+library(leaflet)
+
+# Generate the interactive map
+map <- leaflet(data = companies_data) %>%
+  addTiles() %>%  # Add default OpenStreetMap tile layer
+  addMarkers(
+    lng = ~Longitude, lat = ~Latitude, 
+    popup = ~paste(
+      Company_name,
+      "<br>Headquarters: ", Headquarters,
+      "<br>Total Jobs Available Worldwide: ", Total_Jobs,
+      "<br>Industry: ", Industry  # Adding industry to the popup
+    ),
+    clusterOptions = markerClusterOptions()
+  )
+
+map
+```
+
+
+
+### I generated the map of the top 20 companies by total jobs available worldwide, according to the dataset. We can see that these companies are clustered at Europe, India, and the east coast of the US.
+
+
+
+```{r ,message=FALSE,echo=FALSE,warning=FALSE}
+companies_separated <- companies %>%
+  separate_rows(Highly_rated_for, sep = ",")
+
+# Preprocess the text data
+text <- companies_separated$Highly_rated_for
+text <- gsub("skill development/learning", "skill_dev_learning", text, ignore.case = TRUE)
+text <- gsub("work life balance", "balance", text, ignore.case = TRUE)
+text <- gsub("job security", "job_security", text, ignore.case = TRUE)
+text <- gsub("Promotions / Appraisal", "Promotions", text, ignore.case = TRUE)
+text <- gsub("Salary & Benefits", "Salary", text, ignore.case = TRUE)
+text <- gsub("Work Satisfaction", "satisfaction", text, ignore.case = TRUE)
+
+text <- gsub("/", " ", text)
+text <- gsub(" ", "_", text)
+
+# Create a corpus
+corpus <- Corpus(VectorSource(text))
+
+# Create a term-document matrix
+tdm <- TermDocumentMatrix(corpus)
+matrix <- as.matrix(tdm)
+words <- sort(rowSums(matrix), decreasing = TRUE)
+
+# Create a data frame with words and their frequencies
+word_freq <- data.frame(word = names(words), freq = words)
+
+# Replace underscores with spaces for better readability
+word_freq$word <- gsub("_", " ", word_freq$word)
+
+# Create a word cloud
+set.seed(1234)
+wordcloud(words = word_freq$word, freq = word_freq$freq, min.freq = 1,
+          max.words = 100, random.order = FALSE, rot.per = 0.35,
+          scale = c(5,0.8),
+          colors = brewer.pal(8, "Dark2"))
+```
+
+
+### Here is a word cloud of what companies are highly rated for. For example, job security takes an important role.
+
+
+
+```{r ,message=FALSE,echo=FALSE,warning=FALSE}
+##an interactive scatter plot that focuses on the relationship between the number of interviews and the average salary for the top 30 companies with the highest ratings.
+
+# Filter top 30 companies with the highest ratings
+top_30_companies <- companies %>%
+  arrange(desc(Ratings)) %>%
+  head(30)
+
+# Create the interactive scatter plot
+plot <- plot_ly(data = top_30_companies, x = ~Interviews_taken, y = ~Avg_salary, 
+                text = ~paste("Company: ", Company_name, "<br>",
+                              "Ratings: ", Ratings),
+                type = "scatter", mode = "markers",
+                marker = list(size = 10,
+                              color = ~Ratings,
+                              colorscale = "Viridis",
+                              showscale = TRUE,
+                              line = list(width = 1, color = "white")),
+                hoverinfo = "text") %>%
+  layout(title = "Number of Interviews vs. Average Salary (Top 30 Companies)",
+         xaxis = list(title = "Number of Interviews"),
+         yaxis = list(title = "Average Salary"),
+         legend = list(title = list(text = "Ratings")))
+
+# Display the plot
+plot
+```
+
+
+### We have chosen the top 30 companies, with highest ratings, among the top 10000 companies for this analysis. We explore the relationship between number of interviews and average salary through this interactive plots.
