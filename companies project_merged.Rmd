@@ -1,0 +1,570 @@
+---
+title: "Analysis On Top 10,000 Companies"
+author: "Group D"
+date: "2024-04-17"
+output: html_document
+---
+
+### Overview:
+
+In an era marked by rapid globalization and technological advancements, understanding the dynamics of leading corporations and their impact on the global economy is increasingly critical. This project delves into the characteristics, performance, and regional distribution of the top 10,000 companies, as listed in a comprehensive dataset provided by Vedant Khapekar on Kaggle. Through the application of advanced data analytics and visualization techniques, we aim to unravel the complex interplay between corporate success and its predictors.
+
+Our objective is to shed light on various aspects such as what companies' genre, size, location, attributes companies are highly rated for, what are critically rated for, and how different components of a company influence earnings and overall success. We have generated a series of visualizations to bring these insights to life, offering a deeper understanding of the corporate landscape.
+
+Join us on this analytical journey as we explore these intricate dynamics. Below are the links to the datasets we utilized, which will allow you to dive deeper into our research and methodology.
+
+### Data:
+
+We utilized two key datasets from Kaggle for our analyses:
+
+1. **Top 10,000 Companies Dataset** - This dataset encompasses a wide range of data points on the top 10,000 companies globally, providing a broad view of corporate success factors and challenges.
+   - [Access the Top 10,000 Companies Dataset](https://www.kaggle.com/datasets/vedantkhapekar/top-10000-companies-dataset)
+
+2. **Top 50 US Tech Companies (2022-2023)** - This dataset focuses specifically on the top 50 technology companies in the United States, offering insights into the tech industry's leaders and innovators.
+   - [Access the Top 50 US Tech Companies Dataset](https://www.kaggle.com/code/alexsaxe/top-50-us-tech-companies-2022-2023)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(wordcloud)
+library(tidytext)
+library(readr)
+library(tidyverse)
+library(plotly)
+library(DT)
+library(igraph)
+library(shiny)
+library(tm)
+library(slam)
+library(reshape2)
+library(RColorBrewer)
+library(leaflet)
+```
+
+```{r ,echo=FALSE}
+# Load the data
+companies <- read.csv("companies.csv")
+```
+
+```{r , warning=FALSE, echo=FALSE}
+# Splitting the description column
+companies_edited <- companies %>%
+  mutate(Description = gsub("\\+\\d+ more", "", Description)) %>%
+  separate(Description, into = c("Genre", "Company_Size", "Company_Type", "Years_Old", "HQ_Location"), sep = " \\| ")
+```
+
+```{r , warning=FALSE,echo=FALSE}
+companies_edited <- companies_edited %>%
+  mutate(
+    Years_Old = as.numeric(gsub("years old", "", Years_Old)),
+    Company_Size = gsub("Employees", "", Company_Size)  # Assuming '1 Lakh+' would be formatted as such
+  )
+```
+
+```{r , message=FALSE, echo=FALSE, warning=FALSE}
+# Convert non-numeric items to numbers
+convert_k_to_number <- function(x) {
+  sapply(x, function(y) {
+    if (grepl("k", y)) {
+      as.numeric(gsub("k", "", y)) * 1000
+    } else {
+      as.numeric(y)
+    }
+  })
+}
+
+companies_edited <- companies_edited %>%
+  mutate(
+    Total_reviews = convert_k_to_number(Total_reviews),
+    Avg_salary = convert_k_to_number(Avg_salary),
+    Interviews_taken = convert_k_to_number(Interviews_taken),
+    Total_jobs_available = convert_k_to_number(Total_jobs_available),
+    Total_benefits = convert_k_to_number(Total_benefits)
+  )
+```
+
+<div style="background-image: url('https://i.pinimg.com/736x/f0/e3/db/f0e3db2345d80338e5bf9d170ebad5a4.jpg'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Topic 1: Numerical Variables Correlations
+</p>
+</div>
+
+```{r ,message=FALSE,echo=FALSE,warning=FALSE }
+numerical_data <- companies_edited %>%
+  select(Total_reviews, Avg_salary, Interviews_taken, Total_jobs_available, Total_benefits) %>%
+  cor(use = "complete.obs")
+
+# Melt the correlation matrix for ggplot2
+melted_cor_matrix <- melt(numerical_data)
+
+# Generate reversed heat colors
+reversed_heat_colors <- rev(grDevices::heat.colors(100))
+
+# Define friendly names for the variables
+friendly_names <- c(
+  Total_reviews = "Total Reviews",
+  Avg_salary = "Average Salary",
+  Interviews_taken = "Interviews Taken",
+  Total_jobs_available = "Total Jobs Available",
+  Total_benefits = "Total Benefits"
+)
+
+# Plot the heatmap with friendly names
+ggplot(melted_cor_matrix, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = reversed_heat_colors, limits = c(0.4, 1), 
+                       breaks = c(0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0), 
+                       labels = c("0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 12, hjust = 1),
+        axis.text.y = element_text(size = 12)) +
+  labs(x = '', y = '', title = 'Heatmap of Variable Correlations', subtitle = 'Correlation coefficients') +
+  scale_x_discrete(labels = friendly_names) + # Change x axis labels
+  scale_y_discrete(labels = friendly_names) + # Change y axis labels
+  geom_text(aes(label = sprintf("%.2f", value)), size = 4, color = "black")
+```
+
+This heatmap provides a visual representation of the correlation coefficients between various numerical variables of a dataset.
+
+- Total Reviews: the total number of reviews submitted for the company on Ambition Box.
+- Average Salary: the average salary reported for the company.
+- Interviews Taken: the number of interviews conducted by the company.
+- Total Jobs Available: the total number of job positions available within the company.
+- Total Benefits: information on benefits offered by the company.
+
+Warmer colors (reds and oranges) indicate higher positive correlations, while cooler colors (yellows) suggest weaker correlations. From the heatmap, we can see strong positive correlations between 'Average Salary‘ and 'Total Benefits', and 'Interviews Taken' and 'Total Reviews'. Conversely, 'Total Jobs Available' appears to have a weaker positive correlation with the other variables. The diagonal, naturally, shows a perfect correlation of 1.0, as it represents the correlation of each variable with itself. This heatmap is a useful tool for quickly identifying relationships and potential areas for deeper analysis.
+
+<div style="background-image: url('https://i.pinimg.com/736x/f0/e3/db/f0e3db2345d80338e5bf9d170ebad5a4.jpg'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Topic 2: Relationship Between Company Genres and Total Benefits
+</p>
+</div>
+
+```{r ,message=FALSE,echo=FALSE,warning=FALSE, include=FALSE}
+genre_to_category <- list(
+  "Technology & Services" = c("IT Services & Consulting", "Telecom", "Internet", "Software Product", "Analytics & KPO", "Hardware & Networking", "Emerging Technologies", "Gaming", "Animation & VFX", "Startup"),
+  "Financial Services" = c("Banking", "NBFC", "Financial Services", "FinTech", "Investment Banking / Venture Capital / Private Equity", "Accounting & Auditing"),
+  "Health & Pharmaceuticals" = c("Pharma", "Healthcare", "Clinical Research", "Biotechnology", "Medical Equipment"),
+  "Engineering & Manufacturing" = c("Engineering & Construction", "Automobile", "Chemicals", "Iron & Steel", "Logistics", "Industrial Machinery", "Auto Components", "Electrical Equipment", "Electronics Manufacturing", "Agro Chemicals", "Industrial Automation", "Metals & Mining", "Semiconductors"),
+  "Energy & Utilities" = c("Oil & Gas", "Power", "Renewable Energy", "Petrochemicals"),
+  "Consumer Goods & Retail" = c("Retail", "Consumer Electronics & Appliances", "FMCG", "Fashion & Textile", "Food Processing", "Beauty & Personal Care", "Furniture & Furnishing", "Leather"),
+  "Education & Training" = c("EdTech", "Education & Training"),
+  "Media, Marketing & Advertising" = c("Marketing & Advertising", "Media & Entertainment", "Printing & Publishing", "Content Development"),
+  "Infrastructure & Real Estate" = c("Building Material", "Real Estate", "Facility Management Services"),
+  "Diverse Sectors" = c("Hospitality", "Travel & Tourism", "Law Enforcement & Security", "Non-Profit", "Government")
+)
+
+# Function to categorize genres into one of the 10 broad categories
+categorize_genre <- function(genre) {
+  for (category in names(genre_to_category)) {
+    if (genre %in% genre_to_category[[category]]) {
+      return(category)
+    }
+  }
+  return("Other")
+}
+
+# Apply the function to the dataset
+companies_edited$broader_genres <- sapply(companies_edited$Genre, categorize_genre)
+
+# Check the new broad categories
+table(companies_edited$broader_genres)
+```
+
+```{r jitter plot,message=FALSE,echo=FALSE,warning=FALSE }
+p <- ggplot(companies_edited, aes(x = broader_genres, y = Total_benefits, color = broader_genres,
+                                  text = paste("Company:", Company_name, "<br>Genre:", broader_genres, 
+                                               "<br>Total Benefits:", Total_benefits, "Thousand USD"))) +
+  geom_jitter(alpha = 0.5, width = 0.25) +
+  theme_minimal() +
+  labs(title = "Relationship Between Broad Genre and Total Benefits", x = "Broad Genre", y = "Total Benefits (Thousand USD)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplotly(p, tooltip = "text")
+```
+
+This visualization represents an analysis of total benefits distributed across various broad industry genres. The interactive jitterplot displays a spread of individual company data within each genre, showing the variability and range of benefits across companies. It is particularly useful as the tooltip displays company name, genre, and total benefits for each variable.
+
+<div style="background-image: url('https://i.pinimg.com/736x/f0/e3/db/f0e3db2345d80338e5bf9d170ebad5a4.jpg'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Topic 3: Mapping of Companies Worldwide
+</p>
+</div>
+
+```{r HQ locations ,message=FALSE,echo=FALSE,warning=FALSE,include=FALSE }
+location_counts <- companies_edited %>%
+  group_by(HQ_Location) %>%
+  summarize(Count = n(), .groups = 'drop')
+
+top_locations <- location_counts %>%
+  arrange(desc(Count)) %>%
+  slice(1:30)  # Selects the top 30 locations by company count
+
+# Display the top locations to verify
+print(top_locations)
+```
+
+```{r df based on locations and counts, message=FALSE, echo=FALSE, warning=FALSE,include=FALSE}
+# Create a data frame based on the provided locations and counts
+top_locations <- data.frame(
+  HQ_Location = c("Mumbai", "Delhi/NCR", "Bangalore", "Chennai", "Noida", "Kolkata", "Pune",
+                  "Gurgaon/Gurugram", "Gurgaon", "Bangalore/Bengaluru", "Hyderabad/Secunderabad",
+                  "New Delhi", "Ahmedabad", "Hyderabad", "Delhi", "London", "Vadodara/Baroda",
+                  "Chandigarh", "Coimbatore", "New York", "Paris", "San Francisco", "Jaipur",
+                  "Bengaluru/Bangalore", "Nagpur", "Thane", "New York City", "Atlanta", "Bhubaneswar"),
+  Count = c(525, 155, 143, 110, 103, 97, 91, 88, 83, 82, 72, 72, 50, 38, 35, 33, 21, 20, 18, 18,
+            17, 16, 15, 13, 13, 13, 12, 11, 11)
+)
+
+# Standardize location names and sum counts if needed
+library(dplyr)
+top_locations <- top_locations %>%
+  mutate(HQ_Location = case_when(
+    grepl("Gurgaon", HQ_Location) ~ "Gurgaon",
+    grepl("Bangalore", HQ_Location) | grepl("Bengaluru", HQ_Location) ~ "Bangalore",
+    grepl("Hyderabad", HQ_Location) ~ "Hyderabad",
+    grepl("New York", HQ_Location) ~ "New York",
+    grepl("Delhi", HQ_Location) ~ "Delhi",
+    TRUE ~ as.character(HQ_Location)
+  )) %>%
+  group_by(HQ_Location) %>%
+  summarize(Count = sum(Count), .groups = 'drop')
+
+# Check the updated top locations
+print(top_locations)
+```
+
+```{r leaflet map, message=FALSE, echo=FALSE, warning=FALSE }
+top_locations <- data.frame(
+  HQ_Location = c("Ahmedabad", "Atlanta", "Bangalore", "Bhubaneswar", "Chandigarh", "Chennai",
+                  "Coimbatore", "Delhi", "Gurgaon", "Hyderabad", "Jaipur", "Kolkata", "London",
+                  "Mumbai", "Nagpur", "New York", "Noida", "Paris", "Pune", "San Francisco",
+                  "Thane", "Vadodara"),
+  Count = c(50, 11, 238, 11, 20, 110, 18, 262, 171, 110, 15, 97, 33, 525, 13, 30, 103, 17, 91, 16,
+            13, 21),
+  Latitude = c(23.0225, 33.7490, 12.9716, 20.2961, 30.7333, 13.0827, 11.0168, 28.7041, 28.4595,
+               17.3850, 26.9124, 22.5726, 51.5074, 19.0760, 21.1458, 40.7128, 28.5355, 48.8566,
+               18.5204, 37.7749, 19.2183, 22.3072),
+  Longitude = c(72.5714, -84.3880, 77.5946, 85.8245, 76.7794, 80.2707, 76.9558, 77.1025, 77.0266,
+                78.4867, 75.7873, 88.3639, -0.1278, 72.8777, 79.0882, -74.0060, 77.3910, 2.3522,
+                73.8567, -122.4194, 72.9781, 73.1812)
+)
+
+leaflet_map <- leaflet(top_locations) %>%
+  addProviderTiles(providers$OpenStreetMap) %>%  # Using OpenStreetMap tiles
+  addCircleMarkers(
+    lng = ~Longitude, lat = ~Latitude,
+    radius = ~sqrt(Count) * 5,  # Radius proportional to the sqrt of the company count
+    popup = ~paste(HQ_Location, "Companies:", Count),
+    color = 'pink', fill = TRUE, fillOpacity = 0.7
+  )
+
+leaflet_map
+```
+
+This interactive leaflet map illustrates the geographic distribution of companies based on their headquarters' locations. Large pink circles indicate a higher concentration of companies, with the circle's size proportional to the square root of the company count. This visualization helps identify global and regional business hubs, with Mumbai, Delhi, and Gurgaon showing particularly significant clusters. By allowing interactive exploration, stakeholders can gain insights into the spatial patterns of corporate presence worldwide.
+
+<div style="background-image: url('https://i.pinimg.com/736x/f0/e3/db/f0e3db2345d80338e5bf9d170ebad5a4.jpg'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Topic 4: Job Availability by Industries and Company Locations
+</p>
+</div>
+
+### Graph 1: Interactive Histogram of the Top 10 Industries by Total Job Available Worldwide
+
+```{r top 10 industries and total job worldwide, message=FALSE,echo=FALSE,warning=FALSE}
+# Clean and convert data
+companies$Industry <- sapply(companies$Description, function(x) unlist(strsplit(x, "\\|"))[1])
+companies$Total_jobs_available <- gsub("k", "000", companies$Total_jobs_available)
+companies$Total_jobs_available <- gsub("[^0-9]", "", companies$Total_jobs_available)
+companies$Total_jobs_available <- as.numeric(companies$Total_jobs_available)
+
+# Calculate top three companies per industry based on total jobs
+top_companies_by_industry <- companies %>%
+  group_by(Industry, Company_name) %>%
+  summarize(Total_Jobs = sum(Total_jobs_available, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(desc(Total_Jobs)) %>%
+  group_by(Industry) %>%
+  mutate(Rank = rank(-Total_Jobs, ties.method = "first")) %>%
+  filter(Rank <= 3) %>%
+  summarise(Top_Companies = paste(Company_name, "(", Total_Jobs, " jobs)", collapse = ", "), .groups = 'drop')
+
+# Combine top industries with top companies info
+top_industries <- companies %>%
+  group_by(Industry) %>%
+  summarize(Total_Jobs = sum(Total_jobs_available, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(desc(Total_Jobs)) %>%
+  slice_max(order_by = Total_Jobs, n = 10) %>%
+  left_join(top_companies_by_industry, by = "Industry")
+
+# Create hover text with top company details
+top_industries$hover_text <- with(top_industries, paste("Industry:", Industry, "<br>Total Jobs Available:", Total_Jobs,
+                                                        "<br>Top Companies: ", Top_Companies))
+
+# Create a ggplot histogram with custom hover text
+p <- ggplot(top_industries, aes(x = reorder(Industry, -Total_Jobs), y = Total_Jobs, fill = Total_Jobs, text = hover_text)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient(low = "lightpink", high = "brown") +
+  labs(title = "Top 10 Industries by Total Jobs Available Worldwide", x = "Industry", y = "Total Jobs Available") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Convert ggplot object to an interactive plotly object with custom tooltips
+p_interactive <- ggplotly(p, tooltip = "text")
+
+# Render the interactive plot
+p_interactive
+```
+
+This bar chart displays the total number of jobs available across different industries along with the top three companies with the highest numbers of available jobs in that industry. The industry with the most jobs available is IT Services & Consulting, which significantly surpasses others. The descending bars suggest a steep drop in job availability when moving to the next industry sectors, like Recruitment and Management Consulting. This visualization succinctly illustrates the job market landscape, highlighting industries with the highest demand for workforce. It also implies where job seekers may find the most opportunities.
+
+### Graph 2: Map of the Top 20 Companies by Total Job Available Worldwide
+
+``` {r , message=FALSE, echo=FALSE, warning=FALSE}
+companies$Industry <- sapply(companies$Description, function(x) {
+  parts <- unlist(strsplit(x, "\\|"))
+  if (length(parts) > 0) trimws(parts[1]) else NA
+})
+
+# Replace 'k' with '000' in Total_jobs_available and clean up non-numeric characters
+companies$Total_jobs_available <- gsub("k", "000", companies$Total_jobs_available)
+companies$Total_jobs_available <- gsub("[^0-9]", "", companies$Total_jobs_available)
+companies$Total_jobs_available <- as.numeric(companies$Total_jobs_available)  # Convert to numeric
+
+# Drop rows with NA in Total_jobs_available
+companies <- companies[!is.na(companies$Total_jobs_available), ]
+
+# Check remaining NA in critical columns and summarize data
+na_count <- sum(is.na(companies$Total_jobs_available))
+
+library(dplyr)
+
+# Aggregate total jobs by company, ensuring to handle NAs properly
+company_jobs_summary <- companies %>%
+  group_by(Company_name) %>%
+  summarize(Total_Jobs = sum(Total_jobs_available, na.rm = TRUE)) %>%
+  arrange(desc(Total_Jobs))
+
+# Select the top 20 companies based on total jobs available
+top_20_companies <- head(company_jobs_summary, 20)
+
+# Define the companies with their job totals and headquarters
+companies_data <- data.frame(
+  Company_name = c("Accenture", "Diverse Lynx", "Multiplier Brand Solutions", "Randstad",
+                   "Ernst & Young", "Skillventory", "Antal International", "PwC",
+                   "Zyoin", "CareerNet Consulting", "Infosys", "JP Morgan Chase",
+                   "Tech Mahindra", "IBM", "Live Connections", "ABC Consultants",
+                   "Indiamart Intermesh", "Tata Capital", "BYJU'S", "TCS"),
+  Total_Jobs = c(99000, 36000, 23000, 23000,
+                 18000, 17000, 15000, 12000,
+                 12000, 11000, 11000, 11000,
+                 11000, 4000, 1284, 1000,
+                 981, 959, 885, 847),
+  Headquarters = c("Dublin, Ireland", "Princeton, New Jersey, USA", "Bangalore, India", "Diemen, Netherlands",
+                   "London, United Kingdom", "Bangalore, India", "London, United Kingdom", "London, United Kingdom",
+                   "Bangalore, India", "Bangalore, India", "Bengaluru, India", "New York, USA",
+                   "Pune, India", "Armonk, New York, USA", "Chennai, India", "New Delhi, India",
+                   "Noida, India", "Mumbai, India", "Bengaluru, India", "Mumbai, India"),
+  Latitude = c(53.349805, 40.357298, 12.971599, 52.337956,
+               51.507351, 12.971599, 51.507351, 51.507351,
+               12.971599, 12.971599, 12.971599, 40.712776,
+               18.520430, 41.126484, 13.082680, 28.613939,
+               28.535516, 19.076090, 12.971599, 19.076090),
+  Longitude = c(-6.260310, -74.667223, 77.594566, 4.953561,
+                -0.127758, 77.594566, -0.127758, -0.127758,
+                77.594566, 77.594566, 77.594566, -74.006058,
+                73.856743, -73.708466, 80.270718, 77.209021,
+                77.391026, 72.877656, 77.594566, 72.877656),
+  Industry = c("Consulting", "HR & Recruitment", "Marketing & Advertising", "HR & Recruitment",
+               "Consulting", "HR & Recruitment", "HR & Recruitment", "Consulting",
+               "IT & Services", "HR & Recruitment", "IT & Services", "Finance",
+               "IT & Services", "IT & Services", "HR & Recruitment", "HR & Recruitment",
+               "Online Marketplace", "Finance", "Education", "IT & Services")
+)
+
+library(leaflet)
+
+# Generate the interactive map
+map <- leaflet(data = companies_data) %>%
+  addTiles() %>%  # Add default OpenStreetMap tile layer
+  addMarkers(
+    lng = ~Longitude, lat = ~Latitude, 
+    popup = ~paste(
+      Company_name,
+      "<br>Headquarters: ", Headquarters,
+      "<br>Total Jobs Available Worldwide: ", Total_Jobs,
+      "<br>Industry: ", Industry
+    ),
+    clusterOptions = markerClusterOptions()
+  )
+
+map
+```
+
+This map visualization displays the geographical distribution of the top 20 companies with the most jobs available. The size of the circles represents the number of companies in each region, indicating a concentration of job opportunities. It highlights that a significant number of these companies are centered in India, with notable clusters also appearing in Europe and along the eastern coast of the United States. The visualization serves as a clear geographical representation of where job seekers might find the most abundant employment opportunities among the top-rated companies.
+
+<div style="background-image: url('https://i.pinimg.com/736x/f0/e3/db/f0e3db2345d80338e5bf9d170ebad5a4.jpg'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Topic 5: Key Strengths of Top-Rated Companies
+</p>
+</div>
+
+```{r ,message=FALSE,echo=FALSE,warning=FALSE}
+companies_separated <- companies %>%
+  separate_rows(Highly_rated_for, sep = ",")
+
+# Preprocess the text data
+text <- companies_separated$Highly_rated_for
+text <- gsub("skill development/learning", "skill_dev_learning", text, ignore.case = TRUE)
+text <- gsub("work life balance", "balance", text, ignore.case = TRUE)
+text <- gsub("job security", "job_security", text, ignore.case = TRUE)
+text <- gsub("Promotions / Appraisal", "Promotions", text, ignore.case = TRUE)
+text <- gsub("Salary & Benefits", "Salary", text, ignore.case = TRUE)
+text <- gsub("Work Satisfaction", "satisfaction", text, ignore.case = TRUE)
+
+text <- gsub("/", " ", text)
+text <- gsub(" ", "_", text)
+
+# Create a corpus
+corpus <- Corpus(VectorSource(text))
+
+# Create a term-document matrix
+tdm <- TermDocumentMatrix(corpus)
+matrix <- as.matrix(tdm)
+words <- sort(rowSums(matrix), decreasing = TRUE)
+
+# Create a data frame with words and their frequencies
+word_freq <- data.frame(word = names(words), freq = words)
+
+# Replace underscores with spaces for better readability
+word_freq$word <- gsub("_", " ", word_freq$word)
+
+# Create a word cloud
+set.seed(1234)
+wordcloud(words = word_freq$word, freq = word_freq$freq, min.freq = 1,
+          max.words = 100, random.order = FALSE, rot.per = 0.35,
+          scale = c(5,0.8),
+          colors = brewer.pal(8, "Dark2"))
+```
+
+This word cloud visualization showcases the most frequently mentioned attributes that contribute to a company's high rating. The prominence of words like "job security," "promotions," and "balance" indicates these are highly valued by employees or stakeholders. The size of each term in the word cloud corresponds to its frequency or importance in the dataset, with "job security" being particularly dominant. The word cloud offers a quick, visually impactful representation of the key factors that are associated with highly-rated companies.
+
+<div style="background-image: url('https://i.pinimg.com/736x/f0/e3/db/f0e3db2345d80338e5bf9d170ebad5a4.jpg'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Topic 6: The Interplay Between Interviews, Salary, and Ratings
+</p>
+</div>
+
+```{r ,message=FALSE,echo=FALSE,warning=FALSE}
+##an interactive scatter plot that focuses on the relationship between the number of interviews and the average salary for the top 30 companies with the highest ratings.
+
+# Filter top 30 companies with the highest ratings
+top_30_companies <- companies %>%
+  arrange(desc(Ratings)) %>%
+  head(30)
+
+top_30_companies$Avg_salary <- as.numeric(gsub("[^0-9]", "", top_30_companies$Avg_salary))
+
+plot <- plot_ly(data = top_30_companies, x = ~Interviews_taken, y = ~Avg_salary/1000, 
+                text = ~paste("Company: ", Company_name, "<br>",
+                              "Ratings: ", Ratings),
+                type = "scatter", mode = "markers",
+                marker = list(size = 10,
+                              color = ~Ratings,
+                              colorscale = "Viridis",
+                              showscale = TRUE,
+                              line = list(width = 1, color = "white")),
+                hoverinfo = "text")
+
+plot <- plot %>%
+  layout(title = "Number of Interviews vs. Average Salary (Top 30 Companies)",
+         xaxis = list(title = "Number of Interviews", type = "linear", dtick = 1),
+         yaxis = list(title = "Average Salary (in thousands)", tickformat = "$.2f", 
+                      range = c(0, max(top_30_companies$Avg_salary/1000) * 1.1)),
+         legend = list(title = list(text = "Ratings")))
+
+# Display the plot
+plot
+```
+
+The scatterplot displays data points for the top 30 highly-rated companies among the dataset of 10,000 companies. Each point represents a company, with the position along the X-axis indicating the number of interviews conducted and the Y-axis showing the average salary offered by that company. The color gradient represents the companies' overall rating, which suggests a trend where companies with higher ratings may offer higher salaries or have a higher number of interviews. However, this trend isn't strongly evident in the plot, suggesting that the relationship between these variables may be complex or influenced by additional factors.
+
+<div style="background-image: url('https://i.pinimg.com/736x/f0/e3/db/f0e3db2345d80338e5bf9d170ebad5a4.jpg'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Topic 7: Network Visualization
+</p>
+</div>
+
+```{r company network visualization, message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.height=8, out.width="100%"}
+# Create a data frame with the company and its elements
+company_data <- data.frame(
+  from = c("Company", "Company", "Company", "Company", "Company", "Company", "Company", "Benefits", "Industry", "Leadership", "Innovation", "Sustainability"),
+  to = c("Benefits", "Industry", "Leadership", "Innovation", "Culture", "Sustainability", "Financial Performance", "Employee Satisfaction", "Market Trends", "Vision", "Competitive Advantage", "Reputation")
+)
+
+# Create the graph object
+company_graph <- graph_from_data_frame(company_data, directed = TRUE)
+
+# Set vertex attributes for coloring and sizing
+V(company_graph)$color <- ifelse(V(company_graph)$name == "Company", "orange", "lightblue")
+V(company_graph)$size <- ifelse(V(company_graph)$name == "Company", 30, 20)
+
+# Set edge arrow size
+E(company_graph)$arrow.size <- 0.5
+
+# Plot the graph
+plot(company_graph,
+     layout = layout_with_kk,
+     vertex.label.color = "black",
+     vertex.label.cex = 0.8,
+     edge.arrow.size = 1,
+     edge.length = 400,
+     main = "Company Analysis Network Visualization")
+```
+
+This network visualization illustrates the interconnected aspects that contribute to a company's holistic analysis. Central to the diagram is the "Company," with surrounding nodes representing key factors such as 'Culture,' 'Innovation,' 'Benefits,' and 'Leadership,' among others. Arrows suggest influence or flow between the company and these factors. For example, 'Financial Performance' might impact 'Sustainability,' and 'Culture' might contribute to 'Employee Satisfaction.' This visualization effectively communicates the multifaceted nature of corporate evaluation and the interdependent relationships between various attributes of a successful company.
+
+<div style="background-image: url('https://i.pinimg.com/736x/f0/e3/db/f0e3db2345d80338e5bf9d170ebad5a4.jpg'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Topic 8: Exploring Top 50 US Tech Companies Dataset
+</p>
+</div>
+
+<div style="background-image: url('https://miro.medium.com/v2/resize:fit:1400/format:webp/1*l1sQ-bVY0ctP92H-SChoLg.png'); background-size: cover; background-position: center; border: 2px solid #000; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+  <p style="font-size: 24px; font-weight: bold; color: #fff; text-shadow: 2px 2px 4px #000; font-family: 'Comic Sans MS', cursive;">Hi, Guys! Please feel free to explore this specific dataset:</p>
+  <p style="font-size: 28px; font-weight: bold; color: #ff0; text-shadow: 2px 2px 4px #000; font-family: 'Impact', sans-serif; text-transform: uppercase;">Top 50 US Technology Companies</p>
+  <p style="font-size: 20px; color: #fff; text-shadow: 2px 2px 4px #000; font-family: 'Comic Sans MS', cursive;">Choose any company that interests you!</p>
+</div>
+
+```{r top-50, message=FALSE, echo=FALSE, warning=FALSE }
+# Load the CSV file with a semicolon delimiter
+top_50 <- read.csv("top_50.csv")
+
+# Interactive data table
+datatable(top_50, filter = "top", options = list(pageLength = 10))
+```
+
+<div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 20px;">
+  <div style="background-image: url('https://miro.medium.com/v2/resize:fit:1400/format:webp/1*Ezwpva7zeoCtaAY_pmTH4w.png'); background-size: cover; background-repeat: no-repeat; background-position: center top; border: 2px solid #000; border-radius: 10px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); width: 100%; height: 400px;"></div>
+  <p style="font-size: 32px; font-weight: bold; color: #000; font-family: 'Impact', sans-serif; text-transform: uppercase; margin-top: 20px;">Now, let the numbers do the talking!!!</p>
+</div>
+
+```{r graphs, message=FALSE,echo=FALSE,warning=FALSE}
+# Interactive bar chart of companies by sector
+sector_count <- top_50 %>%
+  count(Sector, sort = TRUE)
+
+plot_sector <- ggplot(sector_count, aes(x = reorder(Sector, n), y = n, fill = Sector)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Sector", y = "Number of Companies", title = "Top 50 Tech Companies by Sector")
+
+ggplotly(plot_sector)
+
+# Interactive scatter plot of market cap vs annual revenue
+plot_revenue_cap <- ggplot(top_50, aes(x = `Annual.Revenue.2022.2023..USD.in.Billions.`, y = `Market.Cap..USD.in.Trillions.`, color = Sector, text = paste("Company:", Company.Name))) +
+  geom_point(size = 3) +
+  scale_color_discrete(name = "Sector") +
+  labs(x = "Annual Revenue (USD in Billions)", y = "Market Cap (USD in Trillions)", title = "Market Cap vs Annual Revenue")
+
+ggplotly(plot_revenue_cap, tooltip = "text")
+```
+
+The first visualization, a bar chart, categorizes the top 50 US tech companies by their respective sectors, displaying the number of companies within each. Sectors such as 'Software Application' and 'Semiconductors' appear to have the highest representation among these leading tech companies, indicating a robust presence in the market.
+
+The second graph, a scatter plot, maps out these top 50 tech companies by their market capitalization and annual revenue, distinguished by sector. It illustrates that while some companies have high annual revenues, this doesn't always correspond to equally high market capitalization, suggesting varying market perceptions and potential growth expectations.
+
+Both graphs utilize the same dataset but offer different insights: one presents the distribution of companies across sectors, while the other compares financial metrics to highlight economic size and performance within the tech industry.
